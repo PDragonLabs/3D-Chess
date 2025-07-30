@@ -65,5 +65,5 @@ To run this project on your local machine, simply follow these steps:
     -   Alternatively, you can use a local web server or a tool like the [Live Server](https://marketplace.visualstudio.com/items?itemName=ritwickdey.LiveServer) extension for VS Code for the best experience.
 
 
-[PLAY]([https://pdragonlabs.github.io/3D-Chess/)
+[PLAY](https://pdragonlabs.github.io/3D-Chess/)
 
