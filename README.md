@@ -7,7 +7,7 @@ comp chess
 A fully interactive 3D chess game built with **Three.js** and **chess.js**. Play against a multi-level AI opponent right in your browser.
 
 ![3D Chess Game Screenshot](https://placehold.co/600x400/87ceeb/ffffff?text=3D+Chess+Game)
-![PLAY](https://pdragonlabs.github.io/3D-Chess/)
+![PLAY]([https://pdragonlabs.github.io/3D-Chess/))
 
 ---
 
