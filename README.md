@@ -7,7 +7,7 @@ comp chess
 A fully interactive 3D chess game built with **Three.js** and **chess.js**. Play against a multi-level AI opponent right in your browser.
 
 ![3D Chess Game Screenshot](https://placehold.co/600x400/87ceeb/ffffff?text=3D+Chess+Game)
-![PLAY]([https://pdragonlabs.github.io/3D-Chess/))
+
 
 ---
 
@@ -63,3 +63,6 @@ To run this project on your local machine, simply follow these steps:
 3.  **Open `index.html` in your browser.**
     -   You can do this by double-clicking the file in your file explorer.
     -   Alternatively, you can use a local web server or a tool like the [Live Server](https://marketplace.visualstudio.com/items?itemName=ritwickdey.LiveServer) extension for VS Code for the best experience.
+
+4. ![PLAY]([https://pdragonlabs.github.io/3D-Chess/)
+
