@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Chess Game</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden; /* Prevent scrollbars from appearing */
+        }
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        canvas {
+            display: block;
+        }
+        #ui-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 1rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+            max-width: 300px;
+        }
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+        .btn-primary {
+            background-color: #4f46e5;
+            color: white;
+        }
+        .btn-primary:hover {
+            background-color: #4338ca;
+        }
+        .btn-secondary {
+            background-color: #e5e7eb;
+            color: #1f2937;
+        }
+        .btn-secondary:hover {
+            background-color: #d1d5db;
+        }
+        .level-btn.active {
+            background-color: #10b981;
+            color: white;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="container">
+        <div id="ui-panel" class="space-y-4">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800">3D Chess</h1>
+                <p id="status-message" class="text-gray-600 mt-1">Select a level to start.</p>
+            </div>
+            
+            <div>
+                <label class="font-semibold text-gray-700">Difficulty Level</label>
+                <div class="grid grid-cols-2 gap-2 mt-2">
+                    <button id="level-1" class="btn btn-secondary level-btn">Level 1</button>
+                    <button id="level-2" class="btn btn-secondary level-btn">Level 2</button>
+                    <button id="level-3" class="btn btn-secondary level-btn">Level 3</button>
+                    <button id="level-4" class="btn btn-secondary level-btn">Level 4</button>
+                </div>
+            </div>
+
+            <button id="new-game-btn" class="btn btn-primary w-full">New Game</button>
+        </div>
+    </div>
+
+    <script>
+        // --- Basic Setup ---
+        let scene, camera, renderer, controls;
+        let raycaster, mouse;
+        
+        // --- Game Logic ---
+        let game; // chess.js instance
+        let gameLevel = 1;
+        let playerColor = 'w'; // Player is always white
+        let selectedPiece = null; // { piece: Object3D, square: 'e2' }
+        let pieceObjects = {}; // Maps square ('e2') to piece Object3D
+        let highlightMeshes = [];
+
+        // --- Constants ---
+        const boardSize = 8;
+        const squareSize = 5;
+        const boardHeight = 1;
+        const pieceValues = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 100 };
+        const whiteMaterial = new THREE.MeshStandardMaterial({ color: 0xe0e0e0, roughness: 0.4, metalness: 0.2 });
+        const blackMaterial = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.4, metalness: 0.2 });
+        const highlightMaterial = new THREE.MeshStandardMaterial({ color: 0x10b981, transparent: true, opacity: 0.5 });
+        const selectMaterial = new THREE.MeshStandardMaterial({ color: 0xfacc15, transparent: true, opacity: 0.7 });
+
+        // --- UI Elements ---
+        const statusMessage = document.getElementById('status-message');
+        const newGameBtn = document.getElementById('new-game-btn');
+        const levelButtons = [
+            document.getElementById('level-1'),
+            document.getElementById('level-2'),
+            document.getElementById('level-3'),
+            document.getElementById('level-4')
+        ];
+
+        // --- Initialization ---
+        function init() {
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb);
+            scene.fog = new THREE.Fog(0x87ceeb, 100, 250);
+
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 40, 40);
+
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.getElementById('container').appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(20, 50, 20);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.target.set(0, 0, 0);
+            controls.enableDamping = true;
+            controls.maxPolarAngle = Math.PI / 2.2;
+
+            // Raycaster for interaction
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // Create board and start game
+            createBoard();
+            startGame();
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('click', onMouseClick);
+            newGameBtn.addEventListener('click', startGame);
+            levelButtons.forEach((btn, i) => {
+                btn.addEventListener('click', () => setLevel(i + 1));
+            });
+
+            // Set initial level
+            setLevel(1);
+
+            // Start animation loop
+            animate();
+        }
+
+        function createBoard() {
+            const boardGroup = new THREE.Group();
+            const lightMaterial = new THREE.MeshStandardMaterial({ color: 0xf0d9b5 });
+            const darkMaterial = new THREE.MeshStandardMaterial({ color: 0xb58863 });
+            const geometry = new THREE.BoxGeometry(squareSize, boardHeight, squareSize);
+
+            for (let i = 0; i < boardSize; i++) {
+                for (let j = 0; j < boardSize; j++) {
+                    const material = (i + j) % 2 === 0 ? lightMaterial : darkMaterial;
+                    const square = new THREE.Mesh(geometry, material);
+                    square.position.set(
+                        (j - boardSize / 2 + 0.5) * squareSize,
+                        -boardHeight / 2,
+                        (i - boardSize / 2 + 0.5) * squareSize
+                    );
+                    square.receiveShadow = true;
+                    // Store square name for raycasting
+                    square.name = 'square';
+                    square.squareName = String.fromCharCode('a'.charCodeAt(0) + j) + (boardSize - i);
+                    boardGroup.add(square);
+                }
+            }
+            scene.add(boardGroup);
+        }
+        
+        function startGame() {
+            game = new Chess();
+            clearBoard();
+            setupPieces();
+            updateStatus();
+            selectedPiece = null;
+            clearHighlights();
+        }
+
+        function setLevel(level) {
+            gameLevel = level;
+            levelButtons.forEach((btn, i) => {
+                btn.classList.toggle('active', i + 1 === level);
+            });
+            console.log(`Difficulty set to Level ${level}`);
+            startGame();
+        }
+
+        function clearBoard() {
+            Object.values(pieceObjects).forEach(p => scene.remove(p));
+            pieceObjects = {};
+        }
+
+        function setupPieces() {
+            const board = game.board();
+            board.forEach((row, i) => {
+                row.forEach((piece, j) => {
+                    if (piece) {
+                        const squareName = String.fromCharCode('a'.charCodeAt(0) + j) + (8 - i);
+                        const piece3D = createPiece(piece.type, piece.color);
+                        const pos = getPositionForSquare(squareName);
+                        piece3D.position.set(pos.x, pos.y, pos.z);
+                        scene.add(piece3D);
+                        pieceObjects[squareName] = piece3D;
+                    }
+                });
+            });
+        }
+
+        function createPiece(type, color) {
+            const material = color === 'w' ? whiteMaterial : blackMaterial;
+            let pieceMesh;
+            const baseHeight = 1.5;
+            const baseGeo = new THREE.CylinderGeometry(1.8, 1.8, baseHeight, 32);
+
+            switch (type) {
+                case 'p': // Pawn
+                    const pawnHead = new THREE.SphereGeometry(1.2, 32, 32);
+                    pieceMesh = new THREE.Group();
+                    const pawnBase = new THREE.Mesh(baseGeo, material);
+                    const pawnHeadMesh = new THREE.Mesh(pawnHead, material);
+                    pawnHeadMesh.position.y = baseHeight;
+                    pieceMesh.add(pawnBase, pawnHeadMesh);
+                    break;
+                case 'r': // Rook
+                    const rookBody = new THREE.CylinderGeometry(1.5, 1.5, 3, 32);
+                    const rookTop = new THREE.CylinderGeometry(1.8, 1.8, 1, 4);
+                    pieceMesh = new THREE.Group();
+                    const rookBase = new THREE.Mesh(baseGeo, material);
+                    const rookBodyMesh = new THREE.Mesh(rookBody, material);
+                    const rookTopMesh = new THREE.Mesh(rookTop, material);
+                    rookBodyMesh.position.y = baseHeight;
+                    rookTopMesh.position.y = baseHeight + 2.5;
+                    rookTopMesh.rotation.y = Math.PI / 4;
+                    pieceMesh.add(rookBase, rookBodyMesh, rookTopMesh);
+                    break;
+                case 'n': // Knight
+                    // A simplified knight shape
+                    const knightBody = new THREE.BoxGeometry(2, 3, 2);
+                    const knightHead = new THREE.BoxGeometry(1.5, 2, 3);
+                    pieceMesh = new THREE.Group();
+                    const knightBase = new THREE.Mesh(baseGeo, material);
+                    const knightBodyMesh = new THREE.Mesh(knightBody, material);
+                    const knightHeadMesh = new THREE.Mesh(knightHead, material);
+                    knightBodyMesh.position.y = baseHeight + 1;
+                    knightHeadMesh.position.y = baseHeight + 2.5;
+                    knightHeadMesh.position.z = 0.5;
+                    pieceMesh.add(knightBase, knightBodyMesh, knightHeadMesh);
+                    break;
+                case 'b': // Bishop
+                    const bishopBody = new THREE.CylinderGeometry(1, 1.5, 3, 32);
+                    const bishopHead = new THREE.SphereGeometry(1, 32, 32);
+                    pieceMesh = new THREE.Group();
+                    const bishopBase = new THREE.Mesh(baseGeo, material);
+                    const bishopBodyMesh = new THREE.Mesh(bishopBody, material);
+                    const bishopHeadMesh = new THREE.Mesh(bishopHead, material);
+                    bishopBodyMesh.position.y = baseHeight + 1;
+                    bishopHeadMesh.position.y = baseHeight + 3;
+                    pieceMesh.add(bishopBase, bishopBodyMesh, bishopHeadMesh);
+                    break;
+                case 'q': // Queen
+                    const queenBody = new THREE.CylinderGeometry(1.2, 1.6, 4, 32);
+                    const queenHead = new THREE.SphereGeometry(0.8, 32, 32);
+                    pieceMesh = new THREE.Group();
+                    const queenBase = new THREE.Mesh(baseGeo, material);
+                    const queenBodyMesh = new THREE.Mesh(queenBody, material);
+                    const queenHeadMesh = new THREE.Mesh(queenHead, material);
+                    queenBodyMesh.position.y = baseHeight + 1.5;
+                    queenHeadMesh.position.y = baseHeight + 4.5;
+                    pieceMesh.add(queenBase, queenBodyMesh, queenHeadMesh);
+                    break;
+                case 'k': // King
+                    const kingBody = new THREE.CylinderGeometry(1.3, 1.5, 4.5, 32);
+                    const kingCrossH = new THREE.BoxGeometry(0.5, 1.5, 0.5);
+                    const kingCrossV = new THREE.BoxGeometry(1.5, 0.5, 0.5);
+                    pieceMesh = new THREE.Group();
+                    const kingBase = new THREE.Mesh(baseGeo, material);
+                    const kingBodyMesh = new THREE.Mesh(kingBody, material);
+                    const kingCrossHMesh = new THREE.Mesh(kingCrossH, material);
+                    const kingCrossVMesh = new THREE.Mesh(kingCrossV, material);
+                    kingBodyMesh.position.y = baseHeight + 1.75;
+                    kingCrossHMesh.position.y = baseHeight + 4.75;
+                    kingCrossVMesh.position.y = baseHeight + 4.75;
+                    pieceMesh.add(kingBase, kingBodyMesh, kingCrossHMesh, kingCrossVMesh);
+                    break;
+            }
+            pieceMesh.castShadow = true;
+            pieceMesh.receiveShadow = true;
+            pieceMesh.name = `piece_${color}${type}`;
+            pieceMesh.userData = { type, color };
+            return pieceMesh;
+        }
+
+        function getPositionForSquare(square) {
+            const col = square.charCodeAt(0) - 'a'.charCodeAt(0);
+            const row = parseInt(square[1]) - 1;
+            return new THREE.Vector3(
+                (col - boardSize / 2 + 0.5) * squareSize,
+                boardHeight / 2, // on top of the board
+                -(row - boardSize / 2 + 0.5) * squareSize
+            );
+        }
+
+        // --- Game Flow & Interaction ---
+        function onMouseClick(event) {
+            // FIX: Use game.game_over() for the loaded version of chess.js
+            if (game.turn() !== playerColor || game.game_over()) return;
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            if (intersects.length === 0) return;
+            
+            let clickedSquareName = null;
+            let clickedPiece = null;
+
+            // Find the first relevant object clicked (piece or square)
+            for(const intersect of intersects) {
+                if (intersect.object.name === 'square') {
+                    clickedSquareName = intersect.object.squareName;
+                    break;
+                }
+                if (intersect.object.parent && intersect.object.parent.userData.type) {
+                    clickedPiece = intersect.object.parent;
+                    // Find the square this piece is on
+                    for (const [sq, p] of Object.entries(pieceObjects)) {
+                        if (p === clickedPiece) {
+                            clickedSquareName = sq;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+
+            if (!clickedSquareName) return;
+
+            const pieceOnSquare = game.get(clickedSquareName);
+
+            if (selectedPiece) {
+                // Try to move
+                const move = game.move({
+                    from: selectedPiece.square,
+                    to: clickedSquareName,
+                    promotion: 'q' // Always promote to queen for simplicity
+                });
+
+                if (move) {
+                    // Successful move
+                    syncBoardWithMove(move);
+                    clearHighlights();
+                    selectedPiece = null;
+                    updateStatus();
+                    // FIX: Use game.game_over()
+                    if (!game.game_over()) {
+                        // AI's turn
+                        setTimeout(makeAIMove, 500);
+                    }
+                } else {
+                    // Invalid move, deselect or select another piece
+                    clearHighlights();
+                    selectedPiece = null;
+                    // If clicked on another of our pieces, select it
+                    if (pieceOnSquare && pieceOnSquare.color === playerColor) {
+                        selectPiece(pieceObjects[clickedSquareName], clickedSquareName);
+                    }
+                }
+            } else {
+                // Select a piece
+                if (pieceOnSquare && pieceOnSquare.color === playerColor) {
+                    selectPiece(pieceObjects[clickedSquareName], clickedSquareName);
+                }
+            }
+        }
+
+        function selectPiece(piece3D, square) {
+            selectedPiece = { piece: piece3D, square: square };
+            const moves = game.moves({ square: square, verbose: true });
+            highlightValidMoves(moves);
+        }
+
+        function highlightValidMoves(moves) {
+            clearHighlights();
+            const highlightGeo = new THREE.PlaneGeometry(squareSize, squareSize);
+            
+            // Highlight selected piece
+            const selectMesh = new THREE.Mesh(highlightGeo, selectMaterial);
+            const selectedPos = getPositionForSquare(selectedPiece.square);
+            selectMesh.position.set(selectedPos.x, boardHeight + 0.01, selectedPos.z);
+            selectMesh.rotation.x = -Math.PI / 2;
+            scene.add(selectMesh);
+            highlightMeshes.push(selectMesh);
+
+            // Highlight possible moves
+            moves.forEach(move => {
+                const moveMesh = new THREE.Mesh(highlightGeo, highlightMaterial);
+                const pos = getPositionForSquare(move.to);
+                moveMesh.position.set(pos.x, boardHeight + 0.01, pos.z);
+                moveMesh.rotation.x = -Math.PI / 2;
+                scene.add(moveMesh);
+                highlightMeshes.push(moveMesh);
+            });
+        }
+        
+        function clearHighlights() {
+            highlightMeshes.forEach(mesh => scene.remove(mesh));
+            highlightMeshes = [];
+        }
+
+        function syncBoardWithMove(move) {
+            const piece3D = pieceObjects[move.from];
+            const newPos = getPositionForSquare(move.to);
+            
+            // Animate move
+            // For simplicity, we just teleport. A real implementation might use Tween.js
+            piece3D.position.set(newPos.x, newPos.y, newPos.z);
+            
+            // Handle captures
+            if (move.captured) {
+                const capturedPiece = pieceObjects[move.to];
+                if(capturedPiece) scene.remove(capturedPiece);
+            }
+            
+            // Update pieceObjects map
+            delete pieceObjects[move.from];
+            pieceObjects[move.to] = piece3D;
+
+            // Handle promotions, castling, etc. by redrawing board
+            if (move.promotion || move.flags.includes('k') || move.flags.includes('q')) {
+                clearBoard();
+                setupPieces();
+            }
+        }
+
+        function updateStatus() {
+            let status = '';
+            // FIX: Use game.in_checkmate() and game.in_draw() for the loaded version of chess.js
+            if (game.in_checkmate()) {
+                status = `Checkmate! ${game.turn() === 'w' ? 'Black' : 'White'} wins.`;
+            } else if (game.in_draw()) {
+                status = 'Draw!';
+            } else {
+                status = `${game.turn() === 'w' ? 'White' : 'Black'}'s turn.`;
+                if (game.in_check()) {
+                    status += ' (Check!)';
+                }
+            }
+            statusMessage.textContent = status;
+        }
+
+        // --- AI Logic ---
+        function makeAIMove() {
+            updateStatus();
+            // FIX: Use game.game_over()
+            if (game.game_over()) return;
+
+            let bestMove = null;
+            switch (gameLevel) {
+                case 1: bestMove = getLevel1Move(); break;
+                case 2: bestMove = getLevel2Move(); break;
+                case 3: bestMove = getMinimaxMove(2); break; // Depth 2
+                case 4: bestMove = getMinimaxMove(3); break; // Depth 3
+            }
+
+            if (bestMove) {
+                const move = game.move(bestMove);
+                syncBoardWithMove(move);
+            }
+            updateStatus();
+        }
+
+        // Level 1: Random move
+        function getLevel1Move() {
+            const moves = game.moves();
+            return moves[Math.floor(Math.random() * moves.length)];
+        }
+
+        // Level 2: Greedy (prefer captures)
+        function getLevel2Move() {
+            const moves = game.moves({ verbose: true });
+            const captureMoves = moves.filter(m => m.captured);
+            if (captureMoves.length > 0) {
+                return captureMoves[Math.floor(Math.random() * captureMoves.length)];
+            }
+            return moves[Math.floor(Math.random() * moves.length)];
+        }
+        
+        // Level 3 & 4: Minimax
+        function getMinimaxMove(depth) {
+            const bestMove = minimaxRoot(depth, game, true);
+            return bestMove;
+        }
+
+        function minimaxRoot(depth, game, isMaximisingPlayer) {
+            const newGameMoves = game.moves();
+            let bestMove = -9999;
+            let bestMoveFound;
+
+            for (let i = 0; i < newGameMoves.length; i++) {
+                const newGameMove = newGameMoves[i];
+                game.move(newGameMove);
+                const value = minimax(depth - 1, game, !isMaximisingPlayer);
+                game.undo();
+                if (value >= bestMove) {
+                    bestMove = value;
+                    bestMoveFound = newGameMove;
+                }
+            }
+            return bestMoveFound;
+        }
+
+        function minimax(depth, game, isMaximisingPlayer) {
+            if (depth === 0) {
+                return -evaluateBoard(game.board());
+            }
+            const newGameMoves = game.moves();
+            if (isMaximisingPlayer) {
+                let bestMove = -9999;
+                for (let i = 0; i < newGameMoves.length; i++) {
+                    game.move(newGameMoves[i]);
+                    bestMove = Math.max(bestMove, minimax(depth - 1, game, !isMaximisingPlayer));
+                    game.undo();
+                }
+                return bestMove;
+            } else {
+                let bestMove = 9999;
+                for (let i = 0; i < newGameMoves.length; i++) {
+                    game.move(newGameMoves[i]);
+                    bestMove = Math.min(bestMove, minimax(depth - 1, game, !isMaximisingPlayer));
+                    game.undo();
+                }
+                return bestMove;
+            }
+        }
+
+        function evaluateBoard(board) {
+            let totalEvaluation = 0;
+            for (let i = 0; i < 8; i++) {
+                for (let j = 0; j < 8; j++) {
+                    totalEvaluation = totalEvaluation + getPieceValue(board[i][j]);
+                }
+            }
+            return totalEvaluation;
+        }
+
+        function getPieceValue(piece) {
+            if (piece === null) {
+                return 0;
+            }
+            const value = pieceValues[piece.type] || 0;
+            return piece.color === 'w' ? value : -value;
+        }
+
+        // --- Core Loop & Resize ---
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- Start Everything ---
+        init();
+    </script>
+</body>
+</html>
